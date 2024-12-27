@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package >
+  <metadata>
+    <id>Yoloczita</id>
+    <version>1.0.0.0</version>
+    <title>Yoloczita</title>
+    <authors>yuchen</authors>
+    <readme>README.md</readme>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <!-- <icon>icon.png</icon> -->
+    <projectUrl>https://github.com/YuChenDayCode/Yoloczita</projectUrl>
+    <description>.NET Framework 4.6.1下使用Yolov5、v11的onnx模型进行目标检测。</description>
+    <releaseNotes>.NET Framework 4.6.1下使用Yolov5、v11的onnx模型进行目标检测。</releaseNotes>
+    <copyright>Copyright © 2024 Yuchen</copyright>
+    <tags>netframework yolov5 yolov8</tags>
+  </metadata>
+   <files>
+    <file src="README.md"  />
+    </files>
+</package>
