@@ -3,6 +3,8 @@
 
 .idea
 .vs
-
+MigrationBackup
 
 **/packages/**
+
+*.nupkg

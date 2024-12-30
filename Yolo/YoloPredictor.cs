@@ -1,5 +1,6 @@
 ﻿using Microsoft.ML.OnnxRuntime;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data.SqlTypes;
 using System.Drawing;
@@ -12,9 +13,6 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace Yoloczita
 {
-    /// <summary>
-    /// 检测对象
-    /// </summary>
     public class YoloPredictor : IDisposable
     {
         public YoloMetadata Metadata { get; }
@@ -22,6 +20,10 @@ namespace Yoloczita
         private readonly InferenceSession _session;
         private bool _disposed;
 
+        ParallelOptions ParallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount / 2
+        };
 
         public YoloPredictor(string path) : this(File.ReadAllBytes(path))
         {
@@ -35,6 +37,7 @@ namespace Yoloczita
             var shpeInfo = new SessionIoShapeInfo(_session, Metadata);
             YoloSession = new YoloSession(_session, Metadata, shpeInfo);
         }
+
 
         /// <summary>
         /// 图片检测
@@ -62,7 +65,6 @@ namespace Yoloczita
             }
             catch (Exception ex)
             {
-                throw new Exception("检测发生异常：" + ex.Message, ex.InnerException);
             }
 
             return new List<DetectionResult>();
@@ -76,14 +78,14 @@ namespace Yoloczita
         /// <returns></returns>
         private List<DetectionResult> PredictV5(Tensor<float> output, Size originImageSize, float confidence)
         {
-            List<DetectionResult> results = new List<DetectionResult>();
+            ConcurrentBag<DetectionResult> results = new ConcurrentBag<DetectionResult>();
 
             var batch_size = output.Dimensions[0]; // 1
             var ModelOutputCount = output.Dimensions[1];
             var ModelOutputDimensions = output.Dimensions[2]; // 
 
             // 首先处理所有输出的置信度乘积
-            Parallel.For(0, ModelOutputCount, i =>
+            Parallel.For(0, ModelOutputCount, ParallelOptions, i =>
             {
                 if (output[0, i, 4] <= confidence) return;
 
@@ -94,7 +96,7 @@ namespace Yoloczita
                 }
             });
 
-            Parallel.For(0, ModelOutputCount * (ModelOutputDimensions - 5), index =>
+            Parallel.For(0, ModelOutputCount * (ModelOutputDimensions - 5), ParallelOptions, index =>
             {
                 int i = index / (ModelOutputDimensions - 5); // 获取预测组索引
                 int k = index % (ModelOutputDimensions - 5) + 5; // 获取类别索引
@@ -115,26 +117,28 @@ namespace Yoloczita
                     Confidence = output[0, i, k],
                 });
             });
-            results = Apply(results, 0.3f);
-            for (int i = 0; i < results.Count; i++)
+            var r = Apply(results.ToList(), 0.3f);
+            for (int i = 0; i < r.Count; i++)
             {
-                var result = results[i];
+                var result = r[i];
                 result.BoundBox = ImageAdjust(result.BoundBox, originImageSize);
             }
 
-            return results;
+            return r;
         }
 
         private List<DetectionResult> PredictV11(Tensor<float> output, Size originImageSize, float confidence)
         {
-            List<DetectionResult> results = new List<DetectionResult>();
+            var results = new ConcurrentBag<DetectionResult>();
 
             var boxStride = output.Strides[1]; //步长
             var boxSize = output.Dimensions[2]; //边框数量
 
             var namesCount = Metadata.Names.Length;
             var outputTensor = output.AsEnumerable<float>().ToArray();
-            for (var boxIndex = 0; boxIndex < boxSize; boxIndex++)
+
+            //for (var boxIndex = 0; boxIndex < boxSize; boxIndex++)
+            Parallel.For(0, boxSize, ParallelOptions, boxIndex =>
             {
                 for (var nameIndex = 0; nameIndex < namesCount; nameIndex++)
                 {
@@ -155,17 +159,17 @@ namespace Yoloczita
                         Confidence = _confidence,
                     });
                 }
-            }
+            });
 
-            results = Apply(results, 0.3f);
+            var r = Apply(results.ToList(), 0.3f);
 
-            for (int i = 0; i < results.Count; i++)
+            for (int i = 0; i < r.Count; i++)
             {
-                var result = results[i];
+                var result = r[i];
                 result.BoundBox = ImageAdjust(result.BoundBox, originImageSize);
             }
 
-            return results;
+            return r;
         }
 
 
@@ -199,8 +203,7 @@ namespace Yoloczita
             if (boxes.Count == 0)
                 return new List<DetectionResult>();
 
-            boxes.Sort((x, y) => y.Confidence.CompareTo(x.Confidence));
-
+            boxes = boxes.OrderByDescending(o => o.Confidence).ToList();
             var result = new List<DetectionResult>(8)
             {
                 boxes[0]
@@ -293,12 +296,6 @@ namespace Yoloczita
 
             var xRatio = (float)size.Width / model.Width;
             var yRatio = (float)size.Height / model.Height;
-
-            // var ratio = Math.Max(xRatio, yRatio);
-            //
-            // xRatio = ratio;
-            // yRatio = ratio;
-
             return (xRatio, yRatio);
         }
 
