@@ -2,7 +2,7 @@
 <package >
 	<metadata>
 		<id>Yoloczita</id>
-		<version>1.0.3</version>
+		<version>1.0.5</version>
 		<title>Yoloczita</title>
 		<authors>yuchen</authors>
 		<readme>README.md</readme>
@@ -11,7 +11,7 @@
 		<!-- <icon>icon.png</icon> -->
 		<projectUrl>https://github.com/YuChenDayCode/Yoloczita</projectUrl>
 		<description>.NET Framework 4.6.1下使用Yolov5、v11的onnx模型进行目标检测。</description>
-		<releaseNotes>添加依赖包</releaseNotes>
+		<releaseNotes>添加使用GPU；Use GPU</releaseNotes>
 		<copyright>Copyright © 2024 Yuchen</copyright>
 		<tags>netframework yolov5 yolov11</tags>
 		<dependencies>

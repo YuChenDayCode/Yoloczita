@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using System.Diagnostics;
 
 namespace Yoloczita
 {
@@ -25,13 +26,31 @@ namespace Yoloczita
             MaxDegreeOfParallelism = Environment.ProcessorCount / 2
         };
 
-        public YoloPredictor(string path) : this(File.ReadAllBytes(path))
-        {
-        }
+        public YoloPredictor(string path) : this(File.ReadAllBytes(path), null) { }
+        public YoloPredictor(string path, SessionOptions sessionOptions) : this(File.ReadAllBytes(path), sessionOptions) { }
 
-        public YoloPredictor(byte[] model)
+        public YoloPredictor(byte[] model, SessionOptions sessionOptions)
         {
-            _session = new InferenceSession(model);
+            if (sessionOptions == null)
+            {
+                var options = new SessionOptions
+                {
+                    ExecutionMode = ExecutionMode.ORT_PARALLEL,
+                    GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+                };
+                try
+                {
+                    options.AppendExecutionProvider_CUDA(0);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("CUDA not available,Use CPU");
+                    options.AppendExecutionProvider_CPU();
+                }
+                sessionOptions = options;
+            }
+
+            _session = new InferenceSession(model, sessionOptions);
             Metadata = YoloMetadata.Parse(_session);
 
             var shpeInfo = new SessionIoShapeInfo(_session, Metadata);
@@ -69,6 +88,40 @@ namespace Yoloczita
 
             return new List<DetectionResult>();
         }
+
+
+        /// <summary>
+        /// 图片检测
+        /// </summary>
+        /// <param name="img">图片对象</param>
+        /// <param name="confidence">置信度</param>
+        /// <returns>检测信息</returns>
+        public List<DetectionResult> Predict(byte[] img, float confidence = 0.35f)
+        {
+            try
+            {
+                Size originImageSize; //图片原始大小
+                var inputs = PrePprocess(img, out originImageSize);
+                using (var outputresults = _session.Run(inputs))
+                {
+                    var output = outputresults.First().AsTensor<float>();
+                    switch (Metadata.Architecture)
+                    {
+                        case YoloArchitecture.YoloV5:
+                            return PredictV5(output, originImageSize, confidence);
+                        case YoloArchitecture.YoloV8Or11:
+                            return PredictV11(output, originImageSize, confidence);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+            }
+
+            return new List<DetectionResult>();
+        }
+
+
 
         /// <summary>
         /// v5
@@ -178,6 +231,26 @@ namespace Yoloczita
         private List<NamedOnnxValue> PrePprocess(string imgPath, out Size imageSize)
         {
             using (var image = new Bitmap(imgPath))
+            {
+                imageSize = image.Size;
+                using (var resized =
+                       image.Width != Metadata.ImageSize.Width || image.Height != Metadata.ImageSize.Height
+                           ? Utils.ResizeImage(image, Metadata.ImageSize.Width, Metadata.ImageSize.Height)
+                           : new Bitmap(image))
+                {
+                    return new List<NamedOnnxValue>
+                    {
+                        NamedOnnxValue.CreateFromTensor(_session.InputMetadata.Keys.First(),
+                            Utils.ExtractPixels(resized))
+                    };
+                }
+            }
+        }
+
+        private List<NamedOnnxValue> PrePprocess(byte[] img, out Size imageSize)
+        {
+            using (MemoryStream ms = new MemoryStream(img))
+            using (var image = new Bitmap(ms))
             {
                 imageSize = image.Size;
                 using (var resized =
